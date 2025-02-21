@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budget App</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --income-color: #4CAF50;
+            --expense-color: #f44336;
+            --bg-color: #1a1a1a;
+            --card-bg: #2d2d2d;
+            --input-bg: #3d3d3d;
+            --text-color: #ffffff;
+            --border-color: #555;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            padding: 1rem;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+        }
+
+        .input {
+            background-color: var(--input-bg);
+            border-color: var(--border-color);
+            color: var(--text-color);
+        }
+
+        .input:focus {
+            border-color: #485fc7;
+            box-shadow: none;
+        }
+
+        .button.is-primary {
+            background-color: var(--income-color);
+        }
+
+        .button.is-danger {
+            background-color: var(--expense-color);
+        }
+
+        .tag {
+            background-color: #555;
+            margin: 0.25rem 0.25rem 0 0;
+        }
+
+        .income {
+            color: var(--income-color);
+        }
+
+        .expense {
+            color: var(--expense-color);
+        }
+
+        .transaction-item {
+            padding: 1rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .edit-form .input {
+            margin-bottom: 0.5rem;
+        }
+
+        .toggle-button {
+            display: flex;
+        }
+
+        .toggle-button .button {
+            flex: 1;
+            border-radius: 0;
+        }
+
+        .toggle-button .button:first-child {
+            border-top-left-radius: 4px;
+            border-bottom-left-radius: 4px;
+        }
+
+        .toggle-button .button:last-child {
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
+        }
+
+        .toggle-button .button.is-active {
+            background-color: var(--income-color);
+            color: white;
+        }
+
+        .chart-container {
+            margin-top: 2rem;
+            background-color: var(--card-bg);
+            padding: 1rem;
+            border-radius: 6px;
+        }
+
+        canvas {
+            max-height: 300px;
+            width: 100%;
+        }
+
+        @media (min-width: 769px) {
+            .transaction-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .edit-form .columns {
+                margin-bottom: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <section class="section">
+            <div class="container">
+                <div class="card">
+                    <header class="card-header">
+                        <p class="card-header-title has-text-white">Budget App</p>
+                    </header>
+                    <div class="card-content">
+                        <div class="content">
+                            <div class="field">
+                                <div class="columns is-mobile is-multiline">
+                                    <div class="column is-12-mobile is-4-tablet">
+                                        <input v-model="newTransaction.description" 
+                                               class="input" 
+                                               placeholder="Description" 
+                                               @keyup.enter="addTransaction">
+                                    </div>
+                                    <div class="column is-12-mobile is-4-tablet">
+                                        <input v-model.number="newTransaction.amount" 
+                                               type="number" 
+                                               class="input" 
+                                               placeholder="Amount" 
+                                               step="0.01"
+                                               @keyup.enter="addTransaction">
+                                    </div>
+                                    <div class="column is-12-mobile is-4-tablet">
+                                        <div class="toggle-button">
+                                            <button class="button" 
+                                                    :class="{ 'is-active': newTransaction.type === 'income' }" 
+                                                    @click="newTransaction.type = 'income'">
+                                                Income
+                                            </button>
+                                            <button class="button" 
+                                                    :class="{ 'is-active': newTransaction.type === 'expense' }" 
+                                                    @click="newTransaction.type = 'expense'">
+                                                Expense
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="column is-12-mobile is-8-tablet">
+                                        <input v-model="newTag" 
+                                               class="input" 
+                                               placeholder="Add tag (press Enter)" 
+                                               @keyup.enter="addTag">
+                                    </div>
+                                    <div class="column is-12-mobile is-4-tablet">
+                                        <button class="button is-primary is-fullwidth" 
+                                                @click="addTransaction">
+                                            Add Transaction
+                                        </button>
+                                    </div>
+                                </div>
+                                <div v-if="newTransaction.tags.length" class="mt-2">
+                                    <span class="tag" v-for="(tag, index) in newTransaction.tags" :key="index">
+                                        {{ tag }}
+                                        <button class="delete is-small" 
+                                                @click="removeTag(index)"></button>
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="box has-background-dark">
+                                <p>Total Income: {{ totalIncome.toFixed(2) }}</p>
+                                <p>Total Expenses: {{ totalExpenses.toFixed(2) }}</p>
+                                <p>Balance: {{ balance.toFixed(2) }}</p>
+                            </div>
+
+                            <div class="mt-5">
+                                <div v-for="(transaction, index) in transactions" 
+                                     :key="index" 
+                                     class="transaction-item">
+                                    <div v-if="editingIndex !== index">
+                                        <span>{{ transaction.description }}</span>
+                                        <div class="mt-1">
+                                            <span class="tag" v-for="tag in transaction.tags" :key="tag">
+                                                {{ tag }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div v-else class="edit-form">
+                                        <div class="columns is-mobile is-multiline">
+                                            <div class="column is-12-mobile is-4-tablet">
+                                                <input v-model="editTransaction.description" 
+                                                       class="input" 
+                                                       @keyup.enter="saveEdit">
+                                            </div>
+                                            <div class="column is-12-mobile is-4-tablet">
+                                                <input v-model.number="editTransaction.amount" 
+                                                       type="number" 
+                                                       class="input" 
+                                                       step="0.01"
+                                                       @keyup.enter="saveEdit">
+                                            </div>
+                                            <div class="column is-12-mobile is-4-tablet">
+                                                <div class="toggle-button">
+                                                    <button class="button" 
+                                                            :class="{ 'is-active': editTransaction.type === 'income' }" 
+                                                            @click="editTransaction.type = 'income'">
+                                                        Income
+                                                    </button>
+                                                    <button class="button" 
+                                                            :class="{ 'is-active': editTransaction.type === 'expense' }" 
+                                                            @click="editTransaction.type = 'expense'">
+                                                        Expense
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="column is-12-mobile is-8-tablet">
+                                                <input v-model="editTag" 
+                                                       class="input" 
+                                                       placeholder="Add tag (press Enter)" 
+                                                       @keyup.enter="addEditTag">
+                                            </div>
+                                            <div class="column is-12-mobile is-4-tablet">
+                                                <button class="button is-primary is-fullwidth" 
+                                                        @click="saveEdit">
+                                                    Save
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div v-if="editTransaction.tags.length" class="mt-2">
+                                            <span class="tag" v-for="(tag, idx) in editTransaction.tags" :key="idx">
+                                                {{ tag }}
+                                                <button class="delete is-small" 
+                                                        @click="removeEditTag(idx)"></button>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2 is-flex is-align-items-center is-justify-content-space-between">
+                                        <span :class="transaction.type === 'income' ? 'income' : 'expense'">
+                                            {{ transaction.type === 'income' ? '+' : '-' }}${{ transaction.amount.toFixed(2) }}
+                                        </span>
+                                        <div>
+                                            <button v-if="editingIndex !== index" 
+                                                    class="button is-small ml-2" 
+                                                    @click="startEdit(index)">
+                                                Edit
+                                            </button>
+                                            <button v-else 
+                                                    class="button is-small ml-2" 
+                                                    @click="cancelEdit">
+                                                Cancel
+                                            </button>
+                                            <button class="button is-danger is-small ml-2" 
+                                                    @click="deleteTransaction(index)">
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="chart-container">
+                                <h3 class="title is-4 has-text-white">Expense Visualizations</h3>
+                                <div class="columns is-multiline">
+                                    <div class="column is-12-tablet is-4-desktop">
+                                        <canvas id="dailyChart"></canvas>
+                                    </div>
+                                    <div class="column is-12-tablet is-4-desktop">
+                                        <canvas id="weeklyChart"></canvas>
+                                    </div>
+                                    <div class="column is-12-tablet is-4-desktop">
+                                        <canvas id="monthlyChart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        // Non-reactive expense data
+        let expenseData = {
+            daily: {},
+            weekly: {},
+            monthly: {}
+        };
+
+        createApp({
+            data() {
+                return {
+                    transactions: [],
+                    newTransaction: {
+                        description: '',
+                        amount: '',
+                        type: 'expense',
+                        tags: [],
+                        date: new Date().toISOString()
+                    },
+                    newTag: '',
+                    editingIndex: null,
+                    editTransaction: null,
+                    editTag: '',
+                    charts: {
+                        daily: null,
+                        weekly: null,
+                        monthly: null
+                    }
+                }
+            },
+            computed: {
+                totalIncome() {
+                    return this.transactions
+                        .filter(t => t.type === 'income')
+                        .reduce((sum, t) => sum + t.amount, 0) || 0;
+                },
+                totalExpenses() {
+                    return this.transactions
+                        .filter(t => t.type === 'expense')
+                        .reduce((sum, t) => sum + t.amount, 0) || 0;
+                },
+                balance() {
+                    return this.totalIncome - this.totalExpenses;
+                }
+            },
+            methods: {
+                addTransaction() {
+                    if (this.newTransaction.description && this.newTransaction.amount) {
+                        this.transactions.unshift({
+                            ...this.newTransaction,
+                            amount: Number(this.newTransaction.amount),
+                            date: new Date().toISOString()
+                        });
+                        this.saveToLocalStorage();
+                        this.resetForm();
+                        this.calculateExpenses();
+                        this.updateCharts();
+                    }
+                },
+                addTag() {
+                    if (this.newTag && !this.newTransaction.tags.includes(this.newTag)) {
+                        this.newTransaction.tags.push(this.newTag);
+                        this.newTag = '';
+                    }
+                },
+                removeTag(index) {
+                    this.newTransaction.tags.splice(index, 1);
+                },
+                deleteTransaction(index) {
+                    this.transactions.splice(index, 1);
+                    this.saveToLocalStorage();
+                    this.cancelEdit();
+                    this.calculateExpenses();
+                    this.updateCharts();
+                },
+                startEdit(index) {
+                    this.editingIndex = index;
+                    this.editTransaction = {
+                        ...this.transactions[index],
+                        tags: [...this.transactions[index].tags]
+                    };
+                },
+                saveEdit() {
+                    if (this.editTransaction.description && this.editTransaction.amount) {
+                        this.transactions[this.editingIndex] = {
+                            ...this.editTransaction,
+                            amount: Number(this.editTransaction.amount),
+                            date: this.transactions[this.editingIndex].date // Preserve original date
+                        };
+                        this.saveToLocalStorage();
+                        this.cancelEdit();
+                        this.calculateExpenses();
+                        this.updateCharts();
+                    }
+                },
+                cancelEdit() {
+                    this.editingIndex = null;
+                    this.editTransaction = null;
+                    this.editTag = '';
+                },
+                addEditTag() {
+                    if (this.editTag && !this.editTransaction.tags.includes(this.editTag)) {
+                        this.editTransaction.tags.push(this.editTag);
+                        this.editTag = '';
+                    }
+                },
+                removeEditTag(index) {
+                    this.editTransaction.tags.splice(index, 1);
+                },
+                resetForm() {
+                    this.newTransaction = {
+                        description: '',
+                        amount: '',
+                        type: 'expense',
+                        tags: [],
+                        date: new Date().toISOString()
+                    };
+                    this.newTag = '';
+                },
+                saveToLocalStorage() {
+                    localStorage.setItem('budgetTransactions', JSON.stringify(this.transactions));
+                },
+                loadFromLocalStorage() {
+                    const saved = localStorage.getItem('budgetTransactions');
+                    if (saved) {
+                        this.transactions = JSON.parse(saved);
+                    }
+                },
+                calculateExpenses() {
+                    expenseData.daily = {};
+                    expenseData.weekly = {};
+                    expenseData.monthly = {};
+
+                    this.transactions
+                        .filter(t => t.type === 'expense')
+                        .forEach(t => {
+                            const date = new Date(t.date || new Date());
+                            
+                            // Daily
+                            const dailyKey = date.toLocaleDateString();
+                            expenseData.daily[dailyKey] = (expenseData.daily[dailyKey] || 0) + t.amount;
+
+                            // Weekly
+                            const weekStart = new Date(date);
+                            weekStart.setDate(date.getDate() - date.getDay());
+                            const weeklyKey = weekStart.toLocaleDateString();
+                            expenseData.weekly[weeklyKey] = (expenseData.weekly[weeklyKey] || 0) + t.amount;
+
+                            // Monthly
+                            const monthlyKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                            expenseData.monthly[monthlyKey] = (expenseData.monthly[monthlyKey] || 0) + t.amount;
+                        });
+                },
+                initCharts() {
+                    const chartOptions = {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: { color: 'white' },
+                                grid: { color: '#555' }
+                            },
+                            x: {
+                                ticks: { color: 'white' },
+                                grid: { color: '#555' }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            title: {
+                                display: true,
+                                color: 'white'
+                            }
+                        }
+                    };
+
+                    const ctxDaily = document.getElementById('dailyChart');
+                    const ctxWeekly = document.getElementById('weeklyChart');
+                    const ctxMonthly = document.getElementById('monthlyChart');
+
+                    if (!ctxDaily || !ctxWeekly || !ctxMonthly) {
+                        console.error('Chart canvas elements not found');
+                        return;
+                    }
+
+                    this.charts.daily = new Chart(ctxDaily.getContext('2d'), {
+                        type: 'bar',
+                        data: { labels: [], datasets: [{ label: 'Daily Expenses', data: [], backgroundColor: 'rgba(244, 67, 54, 0.7)', borderColor: 'rgba(244, 67, 54, 1)', borderWidth: 1 }] },
+                        options: { ...chartOptions, plugins: { ...chartOptions.plugins, title: { text: 'Daily Expenses' } } }
+                    });
+
+                    this.charts.weekly = new Chart(ctxWeekly.getContext('2d'), {
+                        type: 'bar',
+                        data: { labels: [], datasets: [{ label: 'Weekly Expenses', data: [], backgroundColor: 'rgba(244, 67, 54, 0.7)', borderColor: 'rgba(244, 67, 54, 1)', borderWidth: 1 }] },
+                        options: { ...chartOptions, plugins: { ...chartOptions.plugins, title: { text: 'Weekly Expenses' } } }
+                    });
+
+                    this.charts.monthly = new Chart(ctxMonthly.getContext('2d'), {
+                        type: 'bar',
+                        data: { labels: [], datasets: [{ label: 'Monthly Expenses', data: [], backgroundColor: 'rgba(244, 67, 54, 0.7)', borderColor: 'rgba(244, 67, 54, 1)', borderWidth: 1 }] },
+                        options: { ...chartOptions, plugins: { ...chartOptions.plugins, title: { text: 'Monthly Expenses' } } }
+                    });
+
+                    this.calculateExpenses();
+                    //this.updateCharts();
+                },
+                updateCharts() {
+                    try {
+                        // Daily
+                        const dailyLabels = Object.keys(expenseData.daily).sort().slice(-7);
+                        const dailyValues = dailyLabels.map(label => expenseData.daily[label] || 0);
+                        this.charts.daily.data.labels = dailyLabels.length ? dailyLabels : ['No Data'];
+                        this.charts.daily.data.datasets[0].data = dailyValues.length ? dailyValues : [0];
+                        this.charts.daily.update();
+
+                        // Weekly
+                        const weeklyLabels = Object.keys(expenseData.weekly).sort().slice(-4);
+                        const weeklyValues = weeklyLabels.map(label => expenseData.weekly[label] || 0);
+                        this.charts.weekly.data.labels = weeklyLabels.length ? weeklyLabels : ['No Data'];
+                        this.charts.weekly.data.datasets[0].data = weeklyValues.length ? weeklyValues : [0];
+                        this.charts.weekly.update();
+
+                        // Monthly
+                        const monthlyLabels = Object.keys(expenseData.monthly).sort().slice(-6);
+                        const monthlyValues = monthlyLabels.map(label => expenseData.monthly[label] || 0);
+                        this.charts.monthly.data.labels = monthlyLabels.length ? monthlyLabels : ['No Data'];
+                        this.charts.monthly.data.datasets[0].data = monthlyValues.length ? monthlyValues : [0];
+                        this.charts.monthly.update();
+                    } catch (error) {
+                        console.error('Error updating charts:', error);
+                    }
+                }
+            },
+            mounted() {
+                this.loadFromLocalStorage();
+                this.$nextTick(() => {
+                    this.initCharts();
+                });
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
